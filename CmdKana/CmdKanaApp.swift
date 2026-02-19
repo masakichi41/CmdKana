@@ -4,63 +4,120 @@
 //
 
 import SwiftUI
-import ServiceManagement
 
 @main
 struct CmdKanaApp: App {
     @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
 
     var body: some Scene {
-        MenuBarExtra("CmdKana", systemImage: "command") {
-            MenuContent()
-        }
-    }
-}
-
-// MARK: - Menu Content
-
-struct MenuContent: View {
-    @State private var isLoginItemEnabled = (SMAppService.mainApp.status == .enabled)
-
-    var body: some View {
-        Toggle("Start at Login", isOn: $isLoginItemEnabled)
-            .onChange(of: isLoginItemEnabled) { _, newValue in
-                toggleLoginItem(enabled: newValue)
-            }
-
-        Divider()
-
-        Button("Quit CmdKana") {
-            NSApplication.shared.terminate(nil)
-        }
-        .keyboardShortcut("q")
-    }
-
-    private func toggleLoginItem(enabled: Bool) {
-        do {
-            if enabled {
-                try SMAppService.mainApp.register()
-            } else {
-                try SMAppService.mainApp.unregister()
-            }
-        } catch {
-            print("CmdKana: Failed to \(enabled ? "register" : "unregister") login item: \(error)")
-            isLoginItemEnabled = !enabled
-        }
+        Settings { EmptyView() }
     }
 }
 
 // MARK: - App Delegate
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    let settings = AppSettings()
     private let accessibilityManager = AccessibilityManager()
     private var keyInterceptor: KeyInterceptor?
+    private var statusItem: NSStatusItem?
+    private var settingsWindow: NSWindow?
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleURLEvent(_:replyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        setupStatusItem()
+        observeSettings()
+
         accessibilityManager.ensureAccessibility { [weak self] in
             let interceptor = KeyInterceptor()
             interceptor.start()
             self?.keyInterceptor = interceptor
+        }
+    }
+
+    // MARK: - Status Item
+
+    private func setupStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem?.button?.image = NSImage(systemSymbolName: "command", accessibilityDescription: "CmdKana")
+
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Quit CmdKana", action: #selector(NSApplication.shared.terminate(_:)), keyEquivalent: "q")
+        statusItem?.menu = menu
+
+        statusItem?.isVisible = settings.showMenuBar
+    }
+
+    private func observeSettings() {
+        withObservationTracking {
+            _ = settings.showMenuBar
+        } onChange: { [weak self] in
+            DispatchQueue.main.async {
+                self?.statusItem?.isVisible = self?.settings.showMenuBar ?? true
+                self?.observeSettings()
+            }
+        }
+    }
+
+    // MARK: - Settings Window
+
+    @objc private func openSettings() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+
+        if let window = settingsWindow {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let settingsView = SettingsView()
+            .environment(settings)
+        let hostingController = NSHostingController(rootView: settingsView)
+
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "CmdKana Settings"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+
+        settingsWindow = window
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard (notification.object as? NSWindow) === settingsWindow else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if NSApp.windows.allSatisfy({ !$0.isVisible || $0.title.isEmpty }) {
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        openSettings()
+        return false
+    }
+
+    // MARK: - URL Scheme
+
+    @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, replyEvent: NSAppleEventDescriptor) {
+        guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let url = URL(string: urlString),
+              url.scheme == "cmdkana" else { return }
+
+        if url.host == "settings" {
+            openSettings()
         }
     }
 }
