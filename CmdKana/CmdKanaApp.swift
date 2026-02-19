@@ -72,7 +72,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Settings Window
 
     @objc private func openSettings() {
-        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
         if let window = settingsWindow {
@@ -87,6 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "CmdKana Settings"
         window.styleMask = [.titled, .closable]
+        window.level = .floating
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
@@ -96,12 +97,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard (notification.object as? NSWindow) === settingsWindow else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            if NSApp.windows.allSatisfy({ !$0.isVisible || $0.title.isEmpty }) {
-                NSApp.setActivationPolicy(.accessory)
-            }
-        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
