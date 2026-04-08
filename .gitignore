@@ -33,5 +33,9 @@ Icon?
 .Spotlight-V100
 .Trashes
 
-# 参考ファイル
-cmd-eikana
+# AI
+CLAUDE.md
+AGENTS.md
+
+# docs
+docs/
