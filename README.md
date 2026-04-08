@@ -13,7 +13,7 @@ Cmd+C、Cmd+V などのショートカット操作時には入力ソースの切
 
 ## 動作要件
 
-- macOS 13 (Ventura) 以降
+- macOS 14 (Sonoma) 以降
 - Accessibility権限（初回起動時にシステムが許可を求めます）
 
 ## ビルド
