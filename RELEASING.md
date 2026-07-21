@@ -89,7 +89,7 @@ base64 -i ~/Downloads/AuthKey_XXXXXXXXXX.p8 | pbcopy
 
 ### D. GitHub Secrets を登録する
 
-リポジトリの **Settings → Secrets and variables → Actions → New repository secret** で、以下の 7 つを登録します。
+リポジトリの **Settings → Secrets and variables → Actions → New repository secret** で、以下の 9 つを登録します。
 
 | Secret 名 | 値 | 取得元 |
 |---|---|---|
