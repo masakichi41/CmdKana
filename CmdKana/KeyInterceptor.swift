@@ -23,6 +23,9 @@ private let modifierMasks: [CGKeyCode: CGEventFlags] = [
 
 final class KeyInterceptor {
 
+    /// 稼働状態と検出イベントを公開する診断モデル。
+    private let status: AppStatus
+
     /// 単独押下を検出するための状態変数。
     /// Cmdキー押下時にkeyCodeを記録し、他のキーやマウス操作があればnilにリセット。
     private var pendingKeyCode: CGKeyCode? = nil
@@ -32,6 +35,10 @@ final class KeyInterceptor {
 
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
+
+    init(status: AppStatus) {
+        self.status = status
+    }
 
     func start() {
         setupMouseMonitors()
@@ -93,6 +100,7 @@ final class KeyInterceptor {
             userInfo: refcon
         ) else {
             print("CmdKana: Failed to create CGEvent tap.")
+            status.interceptorRunning = false
             return
         }
 
@@ -101,6 +109,7 @@ final class KeyInterceptor {
         let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+        status.interceptorRunning = true
     }
 
     // MARK: - Event Handling
@@ -173,6 +182,7 @@ final class KeyInterceptor {
             keyUp.flags = CGEventFlags()
             keyDown.post(tap: loc)
             keyUp.post(tap: loc)
+            status.recordSwitch(commandKeyCode == kLeftCommand ? .eisuu : .kana)
         }
     }
 }
