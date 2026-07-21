@@ -3,13 +3,13 @@
     <channel>
         <title>CmdKana</title>
         <item>
-            <title>1.0.0</title>
-            <pubDate>Tue, 21 Jul 2026 05:50:11 +0000</pubDate>
+            <title>1.1.0</title>
+            <pubDate>Tue, 21 Jul 2026 06:44:07 +0000</pubDate>
             <link>https://github.com/masakichi41/CmdKana</link>
-            <sparkle:version>1</sparkle:version>
-            <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
+            <sparkle:version>2</sparkle:version>
+            <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/masakichi41/CmdKana/releases/download/v1.0.0/CmdKana-1.0.0.dmg" length="1868814" type="application/octet-stream" sparkle:edSignature="BO/rZ/GhccmzKhcEVuWCnVVIbzKVfs6QJhonFh3quOcEIgCO3VqINsI9Fv9toaWwxcEyacMWnlI7FyW4psSsCg=="/>
+            <enclosure url="https://github.com/masakichi41/CmdKana/releases/download/v1.1.0/CmdKana-1.1.0.dmg" length="1896467" type="application/octet-stream" sparkle:edSignature="DXbid4gwOt0FtvGGNUa9KG2j4ULVxzB0HQA30aDzL7J8LBM+AXceLtVhC9+CQIuOOYj78nmrpGvlZSOHuVz4CA=="/>
         </item>
     </channel>
 </rss>
