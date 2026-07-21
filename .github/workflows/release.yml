@@ -1,0 +1,222 @@
+name: Release
+
+# v1.0.0 のようなタグを push すると起動する。
+#   git tag v1.0.0
+#   git push origin v1.0.0
+on:
+  push:
+    tags:
+      - "v*"
+
+# Release の作成・アセットのアップロードに必要。
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Xcode 26.2 はストレージ制約で macos-15 には無いため macos-26 を使う。
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26.2
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.2"
+
+      # タグ "v1.0.0" → バージョン "1.0.0" を取り出す。
+      - name: Derive version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Developer ID Application 証明書を一時キーチェーンへ取り込む。
+      # set-key-partition-list は、CI（ヘッドレス環境）で codesign が
+      # パスワードダイアログを出して固まるのを防ぐために必須。
+      - name: Import Developer ID certificate
+        env:
+          CERT_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/developer_id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+
+          echo "$CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERT_PATH" -P "$CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # 一時キーチェーンを検索パスの先頭に追加（既存も保持）。
+          security list-keychains -d user -s "$KEYCHAIN_PATH" \
+            $(security list-keychains -d user | sed s/\"//g)
+
+      # Release 構成で archive。CI 上でだけ Developer ID 署名を上書きするので、
+      # ローカルの Xcode 開発（Apple Development 署名）はそのまま使える。
+      - name: Archive
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          xcodebuild clean archive \
+            -project CmdKana.xcodeproj \
+            -scheme CmdKana \
+            -configuration Release \
+            -destination "generic/platform=macOS" \
+            -archivePath "$RUNNER_TEMP/CmdKana.xcarchive" \
+            MARKETING_VERSION="${{ steps.ver.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
+
+      - name: Export Developer ID app
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>developer-id</string>
+            <key>teamID</key>
+            <string>$TEAM_ID</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>Developer ID Application</string>
+          </dict>
+          </plist>
+          PLIST
+
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/CmdKana.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export"
+
+      # ドラッグ&ドロップでインストールできる DMG を作る。
+      - name: Create DMG
+        run: |
+          set -euo pipefail
+          brew install create-dmg
+          create-dmg \
+            --volname "CmdKana ${{ steps.ver.outputs.version }}" \
+            --window-pos 200 120 \
+            --window-size 600 360 \
+            --icon-size 100 \
+            --icon "CmdKana.app" 150 180 \
+            --hide-extension "CmdKana.app" \
+            --app-drop-link 450 180 \
+            --no-internet-enable \
+            "$RUNNER_TEMP/CmdKana-${{ steps.ver.outputs.version }}.dmg" \
+            "$RUNNER_TEMP/export/CmdKana.app"
+
+      # DMG を公証し、チケットを DMG に綴じ込む（オフラインでも検証可能になる）。
+      - name: Notarize and staple
+        env:
+          API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          echo "$API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
+          DMG="$RUNNER_TEMP/CmdKana-${{ steps.ver.outputs.version }}.dmg"
+
+          xcrun notarytool submit "$DMG" \
+            --key "$KEY_PATH" \
+            --key-id "$API_KEY_ID" \
+            --issuer "$API_ISSUER_ID" \
+            --wait
+
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+
+      # Homebrew Cask に転記する SHA-256 を計算する。
+      - name: Compute SHA-256
+        id: sum
+        run: |
+          set -euo pipefail
+          DMG="$RUNNER_TEMP/CmdKana-${{ steps.ver.outputs.version }}.dmg"
+          echo "sha256=$(shasum -a 256 "$DMG" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ runner.temp }}/CmdKana-${{ steps.ver.outputs.version }}.dmg
+          generate_release_notes: true
+          body: |
+            ## インストール
+
+            ### Homebrew
+            ```sh
+            brew install --cask masakichi41/tap/cmdkana
+            ```
+
+            ### 手動
+            下の `CmdKana-${{ steps.ver.outputs.version }}.dmg` をダウンロードし、`CmdKana.app` を「アプリケーション」へドラッグしてください。初回起動時に Accessibility 権限を許可します。
+
+            ---
+            **Homebrew Cask 用 SHA-256**: `${{ steps.sum.outputs.sha256 }}`
+
+      # Sparkle の appcast を生成し GitHub Pages (gh-pages) へ公開する。
+      # これにより手動DMGユーザーにもアプリ内アップデートが届く。
+      # SPARKLE_ED_PRIVATE_KEY が未登録の間はスキップする（Secret 設定後に有効化）。
+      - name: Generate Sparkle appcast
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SPARKLE_ED_PRIVATE_KEY:-}" ]; then
+            echo "SPARKLE_ED_PRIVATE_KEY 未設定のため appcast 生成をスキップします。"
+            exit 0
+          fi
+
+          SPARKLE_VERSION=2.9.2
+          VER="${{ steps.ver.outputs.version }}"
+
+          # Sparkle 配布物から generate_appcast を取得
+          curl -fsSL -o "$RUNNER_TEMP/sparkle.tar.xz" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          GENERATE_APPCAST="$(find "$RUNNER_TEMP/sparkle" -name generate_appcast -type f | head -1)"
+
+          # 最新DMGだけを置いたフォルダから appcast を生成。
+          # enclosure URL は Release にアップロードした DMG を指す。
+          mkdir -p "$RUNNER_TEMP/appcast-src"
+          cp "$RUNNER_TEMP/CmdKana-${VER}.dmg" "$RUNNER_TEMP/appcast-src/"
+
+          KEYFILE="$RUNNER_TEMP/sparkle_ed_key"
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$KEYFILE"
+          "$GENERATE_APPCAST" \
+            --ed-key-file "$KEYFILE" \
+            --download-url-prefix "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/" \
+            --link "https://github.com/${GITHUB_REPOSITORY}" \
+            "$RUNNER_TEMP/appcast-src"
+          rm -f "$KEYFILE"
+
+          mkdir -p pages
+          cp "$RUNNER_TEMP/appcast-src/appcast.xml" pages/appcast.xml
+          echo "appcast.xml を生成しました。"
+
+      - name: Publish appcast to GitHub Pages
+        if: ${{ hashFiles('pages/appcast.xml') != '' }}
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./pages
+          publish_branch: gh-pages
+          keep_files: true
