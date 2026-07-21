@@ -171,6 +171,44 @@ jobs:
             ---
             **Homebrew Cask 用 SHA-256**: `${{ steps.sum.outputs.sha256 }}`
 
+      # Homebrew tap (masakichi41/homebrew-tap) の Cask を自動更新する。
+      # dist/cmdkana.rb を雛形に version / sha256 を差し込んで push する。
+      # TAP_GITHUB_TOKEN が未登録の間はスキップする（Secret 設定後に有効化）。
+      - name: Update Homebrew tap
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAP_GITHUB_TOKEN:-}" ]; then
+            echo "TAP_GITHUB_TOKEN 未設定のため tap 更新をスキップします。"
+            exit 0
+          fi
+
+          VER="${{ steps.ver.outputs.version }}"
+          SHA="${{ steps.sum.outputs.sha256 }}"
+          TAP_DIR="$RUNNER_TEMP/homebrew-tap"
+
+          git clone --depth 1 \
+            "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/masakichi41/homebrew-tap.git" \
+            "$TAP_DIR"
+
+          mkdir -p "$TAP_DIR/Casks"
+          sed \
+            -e "s|^  version \".*\"|  version \"${VER}\"|" \
+            -e "s|^  sha256 \".*\"|  sha256 \"${SHA}\"|" \
+            dist/cmdkana.rb > "$TAP_DIR/Casks/cmdkana.rb"
+
+          cd "$TAP_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/cmdkana.rb
+          if git diff --cached --quiet; then
+            echo "Cask に変更はありません。"
+            exit 0
+          fi
+          git commit -m "cmdkana ${VER}"
+          git push origin HEAD
+
       # Sparkle の appcast を生成し GitHub Pages (gh-pages) へ公開する。
       # これにより手動DMGユーザーにもアプリ内アップデートが届く。
       # SPARKLE_ED_PRIVATE_KEY が未登録の間はスキップする（Secret 設定後に有効化）。

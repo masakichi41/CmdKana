@@ -1,11 +1,9 @@
 # Homebrew Cask テンプレート
 # -------------------------------------------------------------------
-# これは tap リポジトリ（masakichi41/homebrew-tap）の Casks/cmdkana.rb に
-# 置くファイルの雛形です。本体リポジトリでは配布しません（管理用の控え）。
-#
-# リリースごとに version と sha256 を更新します。
-# sha256 は Release ページ本文の「Homebrew Cask 用 SHA-256」に出力されます。
-# 詳しい手順は RELEASING.md を参照してください。
+# リリース時に CI (.github/workflows/release.yml) がこのファイルの
+# version と sha256 を差し替え、tap リポジトリ（masakichi41/homebrew-tap）の
+# Casks/cmdkana.rb へ自動 push します。編集はこのファイルに対して行い、
+# tap 側を直接編集しないでください。詳しくは RELEASING.md を参照。
 # -------------------------------------------------------------------
 cask "cmdkana" do
   version "1.0.0"
